@@ -6,7 +6,6 @@ import mill.constants.OutFiles.OutFiles.*
 import mill.api.daemon.internal.MillScalaParser
 import scala.collection.mutable
 import scala.jdk.CollectionConverters.CollectionHasAsScala
-import mill.internal.Util.backtickWrap
 
 /**
  * @param seenScripts
@@ -61,22 +60,17 @@ object FileImportGraph {
           case Right((prefix, pkgs, stmts)) =>
             val importSegments = pkgs.mkString(".")
 
-            val expectedImportSegments0 =
-              Seq(rootModuleAlias) ++ (s / os.up).relativeTo(projectRoot).segments
+            val packageNameValidationPassed = importSegments.isEmpty || {
+              importSegments.split("\\.").forall { part =>
+                part.nonEmpty && (part.forall(c => c.isLetterOrDigit || c == '_') ||
+                  (part.startsWith("`") && part.endsWith("`") && part.length > 2))
+              }
+            }
 
-            val expectedImportSegments = expectedImportSegments0.map(backtickWrap).mkString(".")
-            if (
-              expectedImportSegments != importSegments &&
-              // Root build.mill file has its `package build` be optional
-              !(importSegments == "" && rootBuildFileNames.contains(s.last))
-            ) {
-              val expectedImport =
-                if (expectedImportSegments.isEmpty) "<none>"
-                else s"\"package $expectedImportSegments\""
+            if (!packageNameValidationPassed && !rootBuildFileNames.contains(s.last)) {
               errors.append(
-                s"Package declaration \"package $importSegments\" in " +
-                  s"${s.relativeTo(topLevelProjectRoot)} does not match " +
-                  s"folder structure. Expected: $expectedImport"
+                s"Invalid package declaration \"package $importSegments\" in " +
+                  s"${s.relativeTo(topLevelProjectRoot)}: package name contains invalid characters"
               )
             }
             seenScripts(s) = prefix + stmts.mkString
@@ -121,7 +115,8 @@ object FileImportGraph {
   def walkBuildFiles(projectRoot: os.Path, output: os.Path): Seq[os.Path] = {
     if (!os.exists(projectRoot)) Nil
     else {
-      val nestedBuildFileNames = buildFileExtensions.asScala.map(ext => s"package.$ext").toList
+      val nestedBuildFileNames = allNestedBuildFileNames.asScala.toSet
+
       val buildFiles = os
         .walk(
           projectRoot,
