@@ -279,6 +279,7 @@ object CodeGen {
                 scriptPath = scriptPath,
                 scriptFolderPath = scriptFolderPath,
                 childAliases = childAliases,
+                childNames = childNames,
                 pkg = pkg,
                 aliasImports = aliasImports,
                 scriptCode = scriptCode,
@@ -335,6 +336,7 @@ object CodeGen {
       scriptPath: os.Path,
       scriptFolderPath: os.Path,
       childAliases: String,
+      childNames: Seq[String],
       pkg: String,
       aliasImports: String,
       scriptCode: String,
@@ -359,6 +361,21 @@ object CodeGen {
     val expectedModuleMsg =
       if (projectRoot != millTopLevelProjectRoot) "MillBuildRootModule" else "mill.Module"
 
+    val isNestedBuildFile = segments.nonEmpty &&
+      CGConst.buildFileExtensions.asScala.exists(ext => scriptPath.last == s"build.$ext")
+
+    // For nested build.mill files, generate a local 'build' object to support
+    // local imports like "import build.foo.Bar" that refer to sibling submodules
+    val localBuildObject = if (isNestedBuildFile && childNames.nonEmpty) {
+      val childRefs = childNames.map(c =>
+        s"val ${backtickWrap(c)} = ${CGConst.wrapperObjectName}.${backtickWrap(c)}"
+      ).mkString("\n    ")
+      s"""
+         |  object build {
+         |    $childRefs
+         |  }""".stripMargin
+    } else ""
+
     val headerCode =
       s"""|$generatedFileHeader
           |package $pkg
@@ -369,6 +386,7 @@ object CodeGen {
           |
           |object ${CGConst.wrapperObjectName} extends ${CGConst.wrapperObjectName} {
           |  ${childAliases.linesWithSeparators.mkString("  ")}
+          |  $localBuildObject
           |  ${exportSiblingScripts.linesWithSeparators.mkString("  ")}
           |  ${millDiscover(segments.nonEmpty)}
           |}
