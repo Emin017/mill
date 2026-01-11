@@ -196,7 +196,6 @@ object InspectTests extends UtestIntegrationTestSuite {
       assertGoldenLiteral(
         core3Inspect,
         """core3(core3/package.mill:4)
-          |    Subfolder Module Scaladoc
           |
           |Inherited Modules:
           |    build_.core3.package_
