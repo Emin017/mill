@@ -91,7 +91,7 @@ object MillScalaParserImpl extends MillScalaParser {
       parent: Snippet,
       endMarker: Option[Snippet],
       finalStat: Option[(String, Snippet)],
-      lastImportEnd: Int
+      override val lastImportEnd: Int
   ) extends ObjectData
 
   /** MillParsers contains the code for parsing objects and imports from text. */
