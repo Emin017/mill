@@ -56,6 +56,18 @@ object FileImportGraph {
             try Right(mill.constants.Util.readBuildHeader(s.toNIO, s.last))
             catch { case e: RuntimeException => Left(e.getMessage) }
 
+        val allowNestedBuildMillFiles =
+          if (useDummy) false
+          else {
+            try {
+              val yamlHeader = mill.constants.Util.readBuildHeader(s.toNIO, s.last, true)
+              yamlHeader.contains("allowNestedBuildMillFiles") && (
+                yamlHeader.contains("allowNestedBuildMillFiles: true") ||
+                  yamlHeader.contains("allowNestedBuildMillFiles:true")
+              )
+            } catch { case _: Exception => false }
+          }
+
         if (s.last.endsWith(".yaml")) seenScripts(s) = os.read(s)
         else buildHeaderError.flatMap(_ => parser.splitScript(content, fileName, colored)) match {
           case Right((prefix, pkgs, stmts)) =>
@@ -78,7 +90,9 @@ object FileImportGraph {
 
             val packageDeclarationValid = (isRootFile, isBuildFile, isPackageFile) match {
               case (true, _, _) => emptyPackage || exactMatch
-              case (_, true, _) => emptyPackage || relaxedMatch || exactMatch
+              case (_, true, _) if allowNestedBuildMillFiles =>
+                emptyPackage || relaxedMatch || exactMatch
+              case (_, true, _) => exactMatch
               case _ => relaxedMatch || exactMatch
             }
 
@@ -86,11 +100,20 @@ object FileImportGraph {
               val expectedImport =
                 if (expectedImportSegments.isEmpty) "<none>"
                 else s"\"package $expectedImportSegments\""
-              errors.append(
+              val errorMsg = if (isBuildFile && !allowNestedBuildMillFiles) {
+                s"Package declaration \"package $importSegments\" in " +
+                  s"${s.relativeTo(topLevelProjectRoot)} does not match " +
+                  s"folder structure. Expected: $expectedImport\n" +
+                  s"Hint: Add '//| allowNestedBuildMillFiles: true' at the top of this " +
+                  s"build.mill file to enable relaxed package naming for nested build.mill files. " +
+                  s"Note: this is mainly for compatibility with isolated sub-builds but " +
+                  s"makes IDE support less precise."
+              } else {
                 s"Package declaration \"package $importSegments\" in " +
                   s"${s.relativeTo(topLevelProjectRoot)} does not match " +
                   s"folder structure. Expected: $expectedImport"
-              )
+              }
+              errors.append(errorMsg)
             }
             seenScripts(s) = prefix + stmts.mkString
           case Left(error) =>
