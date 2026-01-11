@@ -195,7 +195,7 @@ object InspectTests extends UtestIntegrationTestSuite {
       val core3Inspect = out("inspect").json.str
       assertGoldenLiteral(
         core3Inspect,
-        """core3(core3/package.mill:6)
+        """core3(core3/package.mill:4)
           |    Subfolder Module Scaladoc
           |
           |Inherited Modules:
