@@ -375,7 +375,7 @@ object CodeGen {
          |""".stripMargin
     } else ""
 
-    val headerCode =
+    val baseHeader =
       s"""|$generatedFileHeader
           |package $pkg
           |
@@ -383,11 +383,19 @@ object CodeGen {
           |$importSiblingScripts
           |$prelude
           |$localBuildObject
-          |object ${CGConst.wrapperObjectName} extends ${CGConst.wrapperObjectName} {
-          |  ${childAliases.linesWithSeparators.mkString("  ")}
-          |  ${exportSiblingScripts.linesWithSeparators.mkString("  ")}
+          |""".stripMargin
+
+    val wrapperTail =
+      s"""|  ${exportSiblingScripts.linesWithSeparators.mkString("  ")}
           |  ${millDiscover(segments.nonEmpty)}
           |}
+          |""".stripMargin
+
+    val headerCode =
+      s"""|$baseHeader
+          |object ${CGConst.wrapperObjectName} extends ${CGConst.wrapperObjectName} {
+          |  ${childAliases.linesWithSeparators.mkString("  ")}
+          |$wrapperTail
           |""".stripMargin
 
     val newParent =
@@ -396,54 +404,85 @@ object CodeGen {
 
     objectData.find(o => o.name.text == "`package`") match {
       case Some(objectData) =>
+        val packageObjectStart = objectData.obj.start
+        val lastImportEnd = objectData.lastImportEnd
+        val prePackageBody = scriptCode.substring(lastImportEnd, packageObjectStart)
+        val hasPrePackageDefs = prePackageBody.exists(!_.isWhitespace)
 
-        var newScriptCode = scriptCode
-        objectData.endMarker match {
-          case Some(endMarker) =>
-            newScriptCode = endMarker.applyTo(newScriptCode, CGConst.wrapperObjectName)
-          case None =>
-            ()
-        }
-        objectData.finalStat match {
-          case Some((_, finalStat)) =>
-            val statLines = finalStat.text.linesWithSeparators.toSeq
-            val fenced = Seq(
-              "",
-              if statLines.sizeIs > 1 then statLines.tail.mkString else finalStat.text
-            ).mkString(System.lineSeparator())
-            newScriptCode = finalStat.applyTo(newScriptCode, fenced)
-          case None => ()
-        }
-
-        newScriptCode = objectData.parent.applyTo(
-          newScriptCode,
-          if (objectData.parent.text == null) {
-            throw new Result.Exception(
-              s"object `package` in ${scriptPath.relativeTo(millTopLevelProjectRoot)} " +
-                s"must extend a subclass of `$expectedModuleMsg`"
-            )
-          } else {
-            // `extends` clauses can have the parent followed by either `with` or `,`
-            // separators, but it needs to be consistent. So we need to try and see if
-            // any separators are already present and if so follow suite. Not 100%
-            // precise, but probably works well enough people will rarely hit issues
-            val postParent = newScriptCode.drop(objectData.parent.end).trim
-            val sep = {
-              if (postParent.startsWith(",")) ", "
-              else if (postParent.startsWith("with")) " with "
-              else ", " // no separator found, just use `,` by default
-            }
-
-            newParent + sep + objectData.parent.text
+        val (headerWithDefs, scriptPrefix) =
+          if (!hasPrePackageDefs) (headerCode, "")
+          else {
+            val defsBody = scriptCode.substring(0, packageObjectStart)
+            val topLevelBlock =
+              s"""|object _defs {
+                  |${defsBody.linesWithSeparators.map("  " + _).mkString}}
+                  |export _defs._
+                  |""".stripMargin
+            val header =
+              s"""|$baseHeader
+                  |$topLevelBlock
+                  |object ${CGConst.wrapperObjectName} extends ${CGConst.wrapperObjectName} {
+                  |  export _defs._
+                  |  ${childAliases.linesWithSeparators.mkString("  ")}
+                  |$wrapperTail
+                  |""".stripMargin
+            val importsPrefix = scriptCode.substring(0, lastImportEnd)
+            (header, if (importsPrefix.endsWith("\n")) importsPrefix else importsPrefix + "\n")
           }
-        )
 
-        newScriptCode = objectData.name.applyTo(newScriptCode, CGConst.wrapperObjectName)
-        newScriptCode = objectData.obj.applyTo(newScriptCode, "abstract class")
+        def rewritePackageObject(): String = {
+          var newScriptCode = scriptCode
 
-        s"""$headerCode
+          objectData.endMarker match {
+            case Some(endMarker) =>
+              newScriptCode = endMarker.applyTo(newScriptCode, CGConst.wrapperObjectName)
+            case None =>
+              ()
+          }
+          objectData.finalStat match {
+            case Some((_, finalStat)) =>
+              val statLines = finalStat.text.linesWithSeparators.toSeq
+              val fenced = Seq(
+                "",
+                if statLines.sizeIs > 1 then statLines.tail.mkString else finalStat.text
+              ).mkString(System.lineSeparator())
+              newScriptCode = finalStat.applyTo(newScriptCode, fenced)
+            case None => ()
+          }
+
+          newScriptCode = objectData.parent.applyTo(
+            newScriptCode,
+            if (objectData.parent.text == null) {
+              throw new Result.Exception(
+                s"object `package` in ${scriptPath.relativeTo(millTopLevelProjectRoot)} " +
+                  s"must extend a subclass of `$expectedModuleMsg`"
+              )
+            } else {
+              // Detect separator style (`,` or `with`) after parent type to match existing code style
+              val postParent = newScriptCode.drop(objectData.parent.end).trim
+              val sep = {
+                if (postParent.startsWith(",")) ", "
+                else if (postParent.startsWith("with")) " with "
+                else ", " // default to `,` if no separator found
+              }
+
+              newParent + sep + objectData.parent.text
+            }
+          )
+
+          newScriptCode = objectData.name.applyTo(newScriptCode, CGConst.wrapperObjectName)
+          newScriptCode = objectData.obj.applyTo(newScriptCode, "abstract class")
+          newScriptCode
+        }
+
+        val rewrittenScriptCode = rewritePackageObject()
+        val finalScriptCode =
+          if (hasPrePackageDefs) scriptPrefix + rewrittenScriptCode.substring(packageObjectStart)
+          else rewrittenScriptCode
+
+        s"""$headerWithDefs
            |$markerComment
-           |$newScriptCode
+           |$finalScriptCode
            |""".stripMargin
 
       case None =>

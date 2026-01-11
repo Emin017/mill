@@ -26,6 +26,9 @@ object MillScalaParser {
     def endMarker: Option[Snip]
 
     def finalStat: Option[(String, Snip)]
+
+    /** The end offset of the last import statement before this object, or 0 if none */
+    def lastImportEnd: Int
   }
 
   trait Snip {

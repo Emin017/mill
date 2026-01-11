@@ -90,7 +90,8 @@ object MillScalaParserImpl extends MillScalaParser {
       name: Snippet,
       parent: Snippet,
       endMarker: Option[Snippet],
-      finalStat: Option[(String, Snippet)]
+      finalStat: Option[(String, Snippet)],
+      lastImportEnd: Int
   ) extends ObjectData
 
   /** MillParsers contains the code for parsing objects and imports from text. */
@@ -216,8 +217,9 @@ object MillScalaParserImpl extends MillScalaParser {
   private def objectDatas(trees: List[untpd.Tree])(using Context): Seq[ObjectDataImpl] = {
     val buf = Seq.newBuilder[ObjectDataImpl]
     val content = ctx.source.content()
+    var lastImportEndOffset = 0
 
-    def moduleDef(mdef: untpd.ModuleDef): Option[ObjectDataImpl] = {
+    def moduleDef(mdef: untpd.ModuleDef, importEnd: Int): Option[ObjectDataImpl] = {
       val untpd.ModuleDef(name, impl) = mdef
       val obj0 = {
         val start0 = MillParsers.skipModsObjectOffset(mdef.sourcePos.start)
@@ -294,12 +296,15 @@ object MillScalaParserImpl extends MillScalaParser {
         } yield (leading, stat)
       }
 
-      obj0.map(ObjectDataImpl(_, name0, parent0, endMarker0, finalStat0))
+      obj0.map(ObjectDataImpl(_, name0, parent0, endMarker0, finalStat0, importEnd))
     }
 
     def topLevel(trees: List[untpd.Tree]): Unit = trees match {
+      case (imp @ untpd.Import(_, _)) :: trees1 if validSpan(imp.sourcePos) =>
+        lastImportEndOffset = imp.sourcePos.end
+        topLevel(trees1)
       case (mdef @ untpd.ModuleDef(_, _)) :: trees1 if validSpan(mdef.sourcePos) =>
-        for obj <- moduleDef(mdef) do
+        for obj <- moduleDef(mdef, lastImportEndOffset) do
           buf += obj
         topLevel(trees1)
       case _ :: trees1 =>

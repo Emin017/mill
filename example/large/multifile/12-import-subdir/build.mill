@@ -9,14 +9,14 @@
 //
 // === Example Project
 // The `FooModule` trait is defined in the nested `deps/foo/build.mill` file, which has the
-// `//| allowNestedBuildMillFiles: true` flag to enable relaxed package naming. We can reference it
-// using the hierarchical path `build_.deps.foo.FooModule`
+// `//| allowNestedBuildMillFiles: true` flag. We can reference it using the hierarchical path
+// `build_.deps.foo.FooModule`
 package build
 
 import mill.*, scalalib.*
 
 /** Reference FooModule from the nested build.mill file */
-trait BarModule extends build_.deps.foo.FooModule
+trait BarModule extends build.deps.foo.FooModule
 
 /** See Also: deps/package.mill */
 
@@ -34,8 +34,7 @@ trait BarModule extends build_.deps.foo.FooModule
 // * `deps/foo/versions.mill` is a helper file that provides shared configuration
 //
 // The nested `deps/foo/build.mill` file defines a `FooModule` trait that can be referenced
-// from the root build file as `build_.deps.foo.FooModule`. Note the use of `build_` to
-// reference the generated build package object.
+// from the root build file as `build.deps.foo.FooModule`.
 //
 // Helper files like `versions.mill` work alongside nested `build.mill` files and can be
 // referenced using the hierarchical path (e.g., `build.foo.scalaVersion`).
